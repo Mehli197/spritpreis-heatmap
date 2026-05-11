@@ -1,6 +1,6 @@
 """
 app.py  –  Spritpreis-Heatmap  (Streamlit)
-Features: GPS, Preisalarm, mobile-optimierte Legende, st.iframe
+Features: GPS, Preisalarm, mobile-optimierte Legende, grosse Karte
 Starten: streamlit run app.py
 """
 
@@ -12,6 +12,7 @@ import requests
 import folium
 import folium.plugins as plugins
 import streamlit as st
+import streamlit.components.v1 as components
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  KONFIGURATION
@@ -75,7 +76,7 @@ def geocode(ort: str):
         return None, f"Geocoding-Fehler: {e}"
     if not results:
         return None, f"Ort '{ort}' nicht gefunden."
-    hit = results[0]
+    hit  = results[0]
     lat  = float(hit["lat"])
     lon  = float(hit["lon"])
     name = hit.get("display_name", ort).split(",")[0].strip()
@@ -94,12 +95,11 @@ def fetch_by_location(lat, lon, radius_km, fuel_type, progress_cb=None):
         grid        = [(lat, lon)]
         call_radius = radius_km
     else:
-        step_km  = MAX_RADIUS * 1.3
-        step_lat = step_km / 111.0
-        step_lon = step_km / (111.0 * math.cos(math.radians(lat)))
+        step_lat    = (MAX_RADIUS * 1.3) / 111.0
+        step_lon    = (MAX_RADIUS * 1.3) / (111.0 * math.cos(math.radians(lat)))
         call_radius = MAX_RADIUS
-        grid = []
-        d_lat = -radius_km / 111.0
+        grid        = []
+        d_lat       = -radius_km / 111.0
         while d_lat <= radius_km / 111.0 + 0.001:
             d_lon_max = radius_km / (111.0 * math.cos(math.radians(lat)))
             d_lon = -d_lon_max
@@ -122,7 +122,7 @@ def fetch_by_location(lat, lon, radius_km, fuel_type, progress_cb=None):
             "apikey": API_KEY,
         }
         try:
-            r = requests.get(BASE_URL, params=params, timeout=10)
+            r    = requests.get(BASE_URL, params=params, timeout=10)
             data = r.json()
             if data.get("ok"):
                 for s in data.get("stations", []):
@@ -148,16 +148,16 @@ def fetch_by_location(lat, lon, radius_km, fuel_type, progress_cb=None):
 
 def build_map_html(stations, fuel_type, region_name,
                    center, zoom, search_radius=None, top_n=10):
-    prices = [s["price"] for s in stations.values()]
+    prices       = [s["price"] for s in stations.values()]
     p_min, p_max = min(prices), max(prices)
-    p_avg = sum(prices) / len(prices)
+    p_avg        = sum(prices) / len(prices)
 
     m = folium.Map(location=list(center), zoom_start=zoom,
                    tiles=None, control_scale=True)
     folium.TileLayer("CartoDB positron",    name="Karte (hell)",   control=True).add_to(m)
     folium.TileLayer("CartoDB dark_matter", name="Karte (dunkel)", control=True).add_to(m)
 
-    # Suchradius
+    # Suchradius-Kreis
     if search_radius and center:
         folium.Circle(
             location=list(center), radius=search_radius * 1000,
@@ -180,19 +180,19 @@ def build_map_html(stations, fuel_type, region_name,
     plugins.HeatMap(
         heat_data, name="🔥 Heatmap",
         min_opacity=0.35, max_zoom=13, radius=20, blur=25,
-        gradient={"0.0":"#00ff00","0.3":"#aaff00","0.5":"#ffff00",
-                  "0.7":"#ffaa00","1.0":"#ff0000"},
+        gradient={"0.0": "#00ff00", "0.3": "#aaff00", "0.5": "#ffff00",
+                  "0.7": "#ffaa00", "1.0": "#ff0000"},
         show=True,
     ).add_to(m)
 
-    # Alle Marker
+    # Alle Marker (ausgeblendet by default)
     marker_fg = folium.FeatureGroup(name="📍 Alle Tankstellen", show=False)
     for s in stations.values():
-        color  = price_to_color(s["price"], p_min, p_max)
-        brand  = s.get("brand") or "–"
-        name   = s.get("name")  or brand
-        street = f"{s.get('street','')} {s.get('houseNumber','')}".strip()
-        place  = s.get("place", "")
+        color     = price_to_color(s["price"], p_min, p_max)
+        brand     = s.get("brand") or "–"
+        name      = s.get("name")  or brand
+        street    = f"{s.get('street', '')} {s.get('houseNumber', '')}".strip()
+        place     = s.get("place", "")
         dist_line = f"<br>📏 {s['_dist_km']:.1f} km" if "_dist_km" in s else ""
         popup = f"""<div style="font-family:sans-serif;min-width:180px">
             <b>{name}</b><br><span style="color:#666">{brand}</span><br><br>
@@ -208,15 +208,15 @@ def build_map_html(stations, fuel_type, region_name,
         ).add_to(marker_fg)
     marker_fg.add_to(m)
 
-    # Top N
+    # Top N günstigste
     actual_top = min(top_n, len(stations))
-    top_fg = folium.FeatureGroup(name=f"⭐ Top {actual_top} günstigste", show=True)
-    cheapest = sorted(stations.values(), key=lambda x: x["price"])[:actual_top]
+    top_fg     = folium.FeatureGroup(name=f"⭐ Top {actual_top} günstigste", show=True)
+    cheapest   = sorted(stations.values(), key=lambda x: x["price"])[:actual_top]
     for rank, s in enumerate(cheapest, 1):
-        brand  = s.get("brand") or "–"
-        name   = s.get("name")  or brand
-        street = f"{s.get('street','')} {s.get('houseNumber','')}".strip()
-        place  = s.get("place", "")
+        brand     = s.get("brand") or "–"
+        name      = s.get("name")  or brand
+        street    = f"{s.get('street', '')} {s.get('houseNumber', '')}".strip()
+        place     = s.get("place", "")
         dist_line = f"<br>📏 {s['_dist_km']:.1f} km" if "_dist_km" in s else ""
         popup = f"""<div style="font-family:sans-serif;min-width:200px">
             <div style="background:#00a81e;color:white;padding:5px 10px;
@@ -240,45 +240,30 @@ def build_map_html(stations, fuel_type, region_name,
         ).add_to(top_fg)
     top_fg.add_to(m)
 
-    # Legende – kompakt, oben rechts, mobile-freundlich
-    ts_now = datetime.now().strftime("%d.%m.%Y %H:%M")
+    # Legende – kompakt oben rechts, mobilfreundlich
+    ts_now      = datetime.now().strftime("%d.%m.%Y %H:%M")
     radius_text = f" · {search_radius:.0f} km" if search_radius else ""
     legend = f"""
     <style>
       .sprit-legend {{
-        position: fixed;
-        top: 10px;
-        right: 10px;
-        z-index: 9999;
-        background: rgba(255,255,255,0.95);
-        border-radius: 8px;
-        padding: 8px 12px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.25);
-        font-family: sans-serif;
-        font-size: 11px;
-        line-height: 1.6;
-        max-width: 170px;
+        position: fixed; top: 10px; right: 10px; z-index: 9999;
+        background: rgba(255,255,255,0.95); border-radius: 8px;
+        padding: 8px 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+        font-family: sans-serif; font-size: 11px; line-height: 1.6; max-width: 170px;
       }}
       .sprit-gradient {{
-        height: 8px;
-        border-radius: 4px;
-        margin: 4px 0;
+        height: 8px; border-radius: 4px; margin: 4px 0;
         background: linear-gradient(to right,#00ff00,#aaff00,#ffff00,#ffaa00,#ff0000);
       }}
       .sprit-minmax {{
-        display: flex;
-        justify-content: space-between;
-        font-size: 10px;
-        color: #666;
+        display: flex; justify-content: space-between; font-size: 10px; color: #666;
       }}
     </style>
     <div class="sprit-legend">
       <b>⛽ {fuel_type.upper()}</b>{radius_text}<br>
       <div class="sprit-gradient"></div>
       <div class="sprit-minmax">
-        <span>{p_min:.3f}€</span>
-        <span>Ø{p_avg:.3f}€</span>
-        <span>{p_max:.3f}€</span>
+        <span>{p_min:.3f}€</span><span>Ø{p_avg:.3f}€</span><span>{p_max:.3f}€</span>
       </div>
       <hr style="margin:4px 0;border:none;border-top:1px solid #ddd">
       <span style="color:#888;font-size:10px">{len(stations):,} Stationen<br>{ts_now}</span>
@@ -286,7 +271,6 @@ def build_map_html(stations, fuel_type, region_name,
     m.get_root().html.add_child(folium.Element(legend))
 
     folium.LayerControl(collapsed=True).add_to(m)
-
     return m._repr_html_()
 
 
@@ -298,16 +282,10 @@ GPS_HTML = """
 <style>
   body { margin: 0; font-family: sans-serif; }
   #gps-btn {
-    width: 100%;
-    padding: 10px;
-    background: #0066cc;
-    color: white;
-    border: none;
-    border-radius: 8px;
-    font-size: 15px;
-    cursor: pointer;
+    width: 100%; padding: 10px; background: #0066cc; color: white;
+    border: none; border-radius: 8px; font-size: 15px; cursor: pointer;
   }
-  #gps-btn:disabled { background: #aaa; }
+  #gps-btn:disabled { background: #aaa; cursor: default; }
   #gps-status { margin-top: 6px; font-size: 12px; color: #444; text-align: center; min-height: 18px; }
 </style>
 <button id="gps-btn" onclick="getLocation()">📍 Meinen Standort verwenden</button>
@@ -326,13 +304,22 @@ function getLocation() {
     function(pos) {
       var lat = pos.coords.latitude.toFixed(6);
       var lon = pos.coords.longitude.toFixed(6);
-      btn.innerText = '✅ ' + lat + ', ' + lon;
-      status.innerHTML = 'Koordinaten unten eintragen ↓';
-      // Felder automatisch befüllen
-      var latField = window.parent.document.querySelector('input[aria-label="Breitengrad (lat)"]');
-      var lonField = window.parent.document.querySelector('input[aria-label="Längengrad (lon)"]');
-      if (latField) { latField.value = lat; latField.dispatchEvent(new Event('input', {bubbles:true})); }
-      if (lonField) { lonField.value = lon; lonField.dispatchEvent(new Event('input', {bubbles:true})); }
+      btn.innerText = '✅ Standort gefunden';
+      status.innerHTML = lat + ', ' + lon + '<br>↓ Unten eintragen & Übernehmen klicken';
+      // Versuche Felder automatisch zu befüllen
+      try {
+        var inputs = window.parent.document.querySelectorAll('input[type="text"]');
+        inputs.forEach(function(inp) {
+          if (inp.placeholder && inp.placeholder.includes('50')) {
+            inp.value = lat;
+            inp.dispatchEvent(new Event('input', {bubbles: true}));
+          }
+          if (inp.placeholder && inp.placeholder.includes('8.')) {
+            inp.value = lon;
+            inp.dispatchEvent(new Event('input', {bubbles: true}));
+          }
+        });
+      } catch(e) {}
     },
     function(err) {
       btn.disabled = false;
@@ -359,7 +346,7 @@ st.set_page_config(
 st.title("⛽ Spritpreis-Heatmap")
 st.caption("Tankstellen in deiner Umgebung – günstigste zuerst")
 
-# Session State
+# Session State initialisieren
 if "gps_lat" not in st.session_state:
     st.session_state.gps_lat = None
 if "gps_lon" not in st.session_state:
@@ -369,15 +356,13 @@ if "gps_lon" not in st.session_state:
 with st.sidebar:
     st.header("🔍 Suche")
 
-    # GPS-Knopf
+    # GPS
     st.subheader("📍 GPS-Standort")
-    st.components.v1.html(GPS_HTML, height=85)
+    components.html(GPS_HTML, height=90)
 
     with st.expander("Koordinaten übernehmen"):
-        gps_lat_input = st.text_input("Breitengrad (lat)", placeholder="50.1234",
-                                       key="lat_input")
-        gps_lon_input = st.text_input("Längengrad (lon)", placeholder="8.5678",
-                                       key="lon_input")
+        gps_lat_input = st.text_input("Breitengrad (lat)", placeholder="50.1234")
+        gps_lon_input = st.text_input("Längengrad (lon)",  placeholder="8.5678")
         if st.button("✅ Übernehmen", use_container_width=True):
             try:
                 st.session_state.gps_lat = float(gps_lat_input)
@@ -387,20 +372,21 @@ with st.sidebar:
                 st.error("Bitte gültige Zahlen eingeben.")
 
     if st.session_state.gps_lat:
-        st.caption(f"✅ GPS aktiv: {st.session_state.gps_lat:.4f}, {st.session_state.gps_lon:.4f}")
-        if st.button("GPS zurücksetzen"):
+        st.caption(f"✅ GPS: {st.session_state.gps_lat:.4f}, {st.session_state.gps_lon:.4f}")
+        if st.button("🗑️ GPS zurücksetzen"):
             st.session_state.gps_lat = None
             st.session_state.gps_lon = None
+            st.rerun()
 
     st.divider()
 
-    # Ort-Eingabe (Fallback)
+    # Ort-Texteingabe
     st.subheader("🏙️ Oder Ort eingeben")
     ort = st.text_input("Ort", placeholder="z.B. Frankfurt, Eschborn …")
 
     st.divider()
 
-    # Parameter
+    # Suchparameter
     radius     = st.slider("Radius (km)", min_value=1, max_value=50, value=15)
     kraftstoff = st.selectbox("Kraftstoff", ["diesel", "super", "e10"])
 
@@ -417,17 +403,15 @@ with st.sidebar:
 
     st.divider()
     suchen = st.button("🗺️ Karte laden", use_container_width=True, type="primary")
-    st.caption("Daten: Tankerkönig · Karten: OSM")
+    st.caption("Daten: Tankerkönig API · Karten: OSM")
 
 
 # ── Hauptbereich ─────────────────────────────────────────────────────────────
 if suchen:
-    # Standort auflösen: GPS hat Vorrang vor Texteingabe
+    # Standort auflösen – GPS hat Vorrang
     if st.session_state.gps_lat and st.session_state.gps_lon:
-        lat  = st.session_state.gps_lat
-        lon  = st.session_state.gps_lon
-        name = f"Mein Standort"
-        err  = None
+        lat, lon, name = st.session_state.gps_lat, st.session_state.gps_lon, "Mein Standort"
+        err = None
     elif ort:
         result, err = geocode(ort)
         if result:
@@ -458,13 +442,12 @@ if suchen:
             st.warning("Keine Tankstellen gefunden. Radius vergrößern?")
         else:
             prices = [s["price"] for s in stations.values()]
-            p_min  = min(prices)
 
-            # ── Preisalarm ───────────────────────────────────────────────────
+            # Preisalarm Banner
             if alarm_aktiv:
                 hits = sorted(
                     [s for s in stations.values() if s["price"] < alarm_schwelle],
-                    key=lambda x: x["price"]
+                    key=lambda x: x["price"],
                 )
                 if hits:
                     best  = hits[0]
@@ -478,23 +461,23 @@ if suchen:
                 else:
                     st.warning(f"🔕 Keine Tankstelle unter {alarm_schwelle:.2f} €/L gefunden.")
 
-            # ── Metriken ─────────────────────────────────────────────────────
+            # Metriken
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Tankstellen",  len(stations))
-            c2.metric("Günstigste",   f"{p_min:.3f} €")
+            c2.metric("Günstigste",   f"{min(prices):.3f} €")
             c3.metric("Durchschnitt", f"{sum(prices)/len(prices):.3f} €")
             c4.metric("Teuerste",     f"{max(prices):.3f} €")
 
-            # ── Karte ────────────────────────────────────────────────────────
+            # Karte
             map_html = build_map_html(
                 stations, kraftstoff, name,
                 center=(lat, lon),
                 zoom=radius_to_zoom(radius),
                 search_radius=radius,
             )
-            st.iframe(map_html, height=700, scrolling=False)
+            components.html(map_html, height=700, scrolling=False)
 
-            # ── Top 10 ───────────────────────────────────────────────────────
+            # Top 10
             st.subheader("🏆 Top 10 günstigste")
             for i, s in enumerate(
                 sorted(stations.values(), key=lambda x: x["price"])[:10], 1
