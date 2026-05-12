@@ -578,7 +578,7 @@ if st.session_state.map_html_normal:
             st.session_state.fullscreen = True
             st.rerun()
 
-    components.html(st.session_state.map_html_normal, height=900, scrolling=False)
+    components.html(st.session_state.map_html_normal, height=1200, scrolling=False)
 
     if st.session_state.stations:
         st.subheader("🏆 Top 10 günstigste")
