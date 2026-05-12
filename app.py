@@ -1,10 +1,5 @@
 """
 app.py  –  Spritpreis-Heatmap  (Streamlit)
-Fixes:
-  - GPS via postMessage (kein URL-Redirect-Problem mehr)
-  - Vollbild-Karte füllt wirklich den ganzen Bildschirm (100vh CSS-Patch)
-  - Layer-Control sichtbar
-  - Legende oben links
 Starten: streamlit run app.py
 """
 
@@ -147,12 +142,11 @@ def fetch_by_location(lat, lon, radius_km, fuel_type, progress_cb=None):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  KARTE – HTML mit optionalem Vollbild-CSS-Patch
+#  KARTE
 # ══════════════════════════════════════════════════════════════════════════════
 
 def build_map_html(stations, fuel_type, region_name,
-                   center, zoom, search_radius=None, top_n=10,
-                   fullscreen=False):
+                   center, zoom, search_radius=None, top_n=10):
     prices       = [s["price"] for s in stations.values()]
     p_min, p_max = min(prices), max(prices)
     p_avg        = sum(prices) / len(prices)
@@ -274,45 +268,26 @@ def build_map_html(stations, fuel_type, region_name,
       <span style="color:#888;font-size:10px">{len(stations):,} Stationen<br>{ts_now}</span>
     </div>"""
     m.get_root().html.add_child(folium.Element(legend))
-
     folium.LayerControl(collapsed=False).add_to(m)
 
     html = m._repr_html_()
 
-    # Vollbild-Patch: Karte und iframe auf 100vh strecken
-    if fullscreen:
-        patch = """
-        <style>
-          html, body { height: 100% !important; margin: 0 !important; padding: 0 !important; }
-          .folium-map { position: fixed !important; top: 0; left: 0;
-                        width: 100vw !important; height: 100vh !important; z-index: 1; }
-          #map { width: 100vw !important; height: 100vh !important; }
-        </style>
-        <script>
-          document.addEventListener('DOMContentLoaded', function() {
-            var maps = document.querySelectorAll('.folium-map, [id^="map_"]');
-            maps.forEach(function(el) {
-              el.style.width  = '100vw';
-              el.style.height = '100vh';
-            });
-            // Leaflet map resize
-            setTimeout(function() {
-              for (var key in window) {
-                if (window[key] && window[key].invalidateSize) {
-                  window[key].invalidateSize();
-                }
-              }
-            }, 300);
-          });
-        </script>"""
-        html = html.replace("</head>", patch + "</head>")
+    # ── Höhen-Patch: html+body+folium-map auf 100% zwingen ───────────────────
+    # Folium setzt die Map-Div auf "width:100%;height:100%" aber body hat keine
+    # definierte Höhe → Leaflet bekommt height=0. Fix: body explizit auf 100vh.
+    height_patch = """
+    <style>
+      html { height: 100%; }
+      body { height: 100%; margin: 0; padding: 0; }
+      .folium-map { height: 100% !important; }
+    </style>"""
+    html = html.replace("<head>", "<head>" + height_patch)
 
     return html
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  GPS-KOMPONENTE via postMessage
-#  Schreibt Koordinaten in versteckte Streamlit-Text-Inputs
+#  GPS-KOMPONENTE
 # ══════════════════════════════════════════════════════════════════════════════
 
 GPS_HTML = """
@@ -345,20 +320,33 @@ function getLocation() {
       var lat = pos.coords.latitude.toFixed(6);
       var lon = pos.coords.longitude.toFixed(6);
       btn.innerText = '✅ ' + lat + ', ' + lon;
-      status.innerHTML = '↓ Auf "Karte laden" drücken';
-      // Koordinaten per postMessage an Streamlit-Parent schicken
-      window.parent.postMessage({
-        isStreamlitMessage: true,
-        type: 'streamlit:setComponentValue',
-        key: 'gps_coords',
-        value: lat + ',' + lon
-      }, '*');
-      // Zusätzlich: direkt in query params schreiben als Fallback
+      status.innerHTML = '↓ Übernehmen klicken';
+      // In URL schreiben ohne Reload
       try {
         var url = new URL(window.parent.location.href);
         url.searchParams.set('gps_lat', lat);
         url.searchParams.set('gps_lon', lon);
         window.parent.history.replaceState({}, '', url.toString());
+      } catch(e) {}
+      // Felder direkt befüllen
+      try {
+        var allInputs = window.parent.document.querySelectorAll('input');
+        allInputs.forEach(function(inp) {
+          var wrapper = inp.closest('[data-testid="stTextInput"]');
+          if (!wrapper) return;
+          var label = wrapper.querySelector('label');
+          if (!label) return;
+          if (label.innerText.includes('Breitengrad')) {
+            inp.value = lat;
+            inp.dispatchEvent(new Event('input', {bubbles:true}));
+            inp.dispatchEvent(new Event('change', {bubbles:true}));
+          }
+          if (label.innerText.includes('Längengrad')) {
+            inp.value = lon;
+            inp.dispatchEvent(new Event('input', {bubbles:true}));
+            inp.dispatchEvent(new Event('change', {bubbles:true}));
+          }
+        });
       } catch(e) {}
     },
     function(err) {
@@ -369,39 +357,6 @@ function getLocation() {
     { enableHighAccuracy: true, timeout: 15000 }
   );
 }
-</script>
-"""
-
-# GPS-Koordinaten-Eingabe (sichtbar, aber vorausgefüllt durch GPS)
-# Nutzer sieht die Felder und kann sie auch manuell korrigieren
-GPS_INPUT_HTML = """
-<script>
-// Auf postMessage von GPS-iframe hören
-window.addEventListener('message', function(e) {
-  if (e.data && e.data.key === 'gps_coords') {
-    var parts = e.data.value.split(',');
-    if (parts.length === 2) {
-      // Alle Streamlit-Inputs durchsuchen und lat/lon befüllen
-      var inputs = document.querySelectorAll('input[type="text"], input[type="number"]');
-      inputs.forEach(function(inp) {
-        var label = inp.closest('[data-testid="stTextInput"]');
-        if (label) {
-          var labelText = label.querySelector('label');
-          if (labelText) {
-            if (labelText.innerText.includes('Breitengrad')) {
-              inp.value = parts[0];
-              inp.dispatchEvent(new Event('input', {bubbles: true}));
-            }
-            if (labelText.innerText.includes('Längengrad')) {
-              inp.value = parts[1];
-              inp.dispatchEvent(new Event('input', {bubbles: true}));
-            }
-          }
-        }
-      });
-    }
-  }
-});
 </script>
 """
 
@@ -421,16 +376,14 @@ if "fullscreen" not in st.session_state:
     st.session_state.fullscreen = False
 if "stations" not in st.session_state:
     st.session_state.stations = None
-if "map_html_normal" not in st.session_state:
-    st.session_state.map_html_normal = None
-if "map_html_full" not in st.session_state:
-    st.session_state.map_html_full = None
+if "map_html" not in st.session_state:
+    st.session_state.map_html = None
 if "gps_lat" not in st.session_state:
     st.session_state.gps_lat = None
 if "gps_lon" not in st.session_state:
     st.session_state.gps_lon = None
 
-# GPS aus query_params lesen (Fallback)
+# GPS aus URL lesen
 params = st.query_params
 if "gps_lat" in params and "gps_lon" in params:
     try:
@@ -440,21 +393,17 @@ if "gps_lat" in params and "gps_lon" in params:
         pass
 
 # ── Vollbild-Modus ────────────────────────────────────────────────────────────
-if st.session_state.fullscreen and st.session_state.map_html_full:
+if st.session_state.fullscreen and st.session_state.map_html:
     st.markdown(
-        """<style>
-        .block-container { padding: 0.5rem 1rem !important; }
-        header { display: none !important; }
-        </style>""",
+        "<style>.block-container{padding:0.5rem 1rem !important;}"
+        "header{display:none !important;}</style>",
         unsafe_allow_html=True,
     )
     if st.button("✕ Vollbild beenden", type="secondary"):
         st.session_state.fullscreen = False
         st.rerun()
-
-    # Karte mit 100vh Höhe
-    components.html(st.session_state.map_html_full, height=700, scrolling=False)
-
+    # Im Vollbild: iframe so hoch wie möglich
+    components.html(st.session_state.map_html, height=750, scrolling=False)
     if st.session_state.stations:
         st.subheader("🏆 Top 10 günstigste")
         for i, s in enumerate(
@@ -466,7 +415,6 @@ if st.session_state.fullscreen and st.session_state.map_html_full:
             st.write(f"**{i}.** `{s['price']:.3f} €` — {brand}, {place} · {dist}")
     st.stop()
 
-
 # ── Normales Layout ───────────────────────────────────────────────────────────
 st.title("⛽ Spritpreis-Heatmap")
 st.caption("Tankstellen in deiner Umgebung – günstigste zuerst")
@@ -474,20 +422,20 @@ st.caption("Tankstellen in deiner Umgebung – günstigste zuerst")
 with st.sidebar:
     st.header("🔍 Suche")
 
-    # GPS-Knopf
     st.subheader("📍 GPS-Standort")
     components.html(GPS_HTML, height=80)
 
-    # Koordinaten-Eingabe (GPS befüllt diese automatisch, oder manuell)
-    st.markdown("**Koordinaten:**")
-    lat_input = st.text_input("Breitengrad (lat)",
-                               value=str(st.session_state.gps_lat) if st.session_state.gps_lat else "",
-                               placeholder="50.1234")
-    lon_input = st.text_input("Längengrad (lon)",
-                               value=str(st.session_state.gps_lon) if st.session_state.gps_lon else "",
-                               placeholder="8.5678")
-
-    if st.button("✅ GPS-Koordinaten übernehmen", use_container_width=True):
+    lat_input = st.text_input(
+        "Breitengrad (lat)",
+        value=str(st.session_state.gps_lat) if st.session_state.gps_lat else "",
+        placeholder="50.1234"
+    )
+    lon_input = st.text_input(
+        "Längengrad (lon)",
+        value=str(st.session_state.gps_lon) if st.session_state.gps_lon else "",
+        placeholder="8.5678"
+    )
+    if st.button("✅ GPS übernehmen", use_container_width=True):
         try:
             st.session_state.gps_lat = float(lat_input)
             st.session_state.gps_lon = float(lon_input)
@@ -510,7 +458,6 @@ with st.sidebar:
 
     radius     = st.slider("Radius (km)", min_value=1, max_value=50, value=15)
     kraftstoff = st.selectbox("Kraftstoff", ["diesel", "super", "e10"])
-
     st.divider()
     suchen = st.button("🗺️ Karte laden", use_container_width=True, type="primary")
     st.caption("Daten: Tankerkönig API · Karten: OSM")
@@ -528,14 +475,13 @@ if suchen:
         else:
             lat = lon = name = None
     else:
-        err = "Bitte Ort eingeben oder GPS-Koordinaten übernehmen."
+        err = "Bitte Ort eingeben oder GPS übernehmen."
         lat = None
 
     if lat is None:
         st.error(err)
     else:
         st.info(f"📍 {name} · {radius} km · {kraftstoff.upper()}")
-
         progress_bar = st.progress(0)
         status_text  = st.empty()
 
@@ -557,28 +503,25 @@ if suchen:
             c3.metric("Durchschnitt", f"{sum(prices)/len(prices):.3f} €")
             c4.metric("Teuerste",     f"{max(prices):.3f} €")
 
-            map_kwargs = dict(
-                stations=stations,
-                fuel_type=kraftstoff,
-                region_name=name,
+            st.session_state.stations = stations
+            st.session_state.map_html = build_map_html(
+                stations, kraftstoff, name,
                 center=(lat, lon),
                 zoom=radius_to_zoom(radius),
                 search_radius=radius,
             )
-            st.session_state.stations       = stations
-            st.session_state.map_html_normal = build_map_html(**map_kwargs, fullscreen=False)
-            st.session_state.map_html_full   = build_map_html(**map_kwargs, fullscreen=True)
 
 
 # ── Karte anzeigen ────────────────────────────────────────────────────────────
-if st.session_state.map_html_normal:
+if st.session_state.map_html:
     col_title, col_btn = st.columns([11, 1])
     with col_btn:
         if st.button("⛶", help="Vollbild", use_container_width=True):
             st.session_state.fullscreen = True
             st.rerun()
 
-    components.html(st.session_state.map_html_normal, height=1200, scrolling=False)
+    # Karte: iframe-Höhe großzügig, innen füllt html+body+folium-map auf 100%
+    components.html(st.session_state.map_html, height=500, scrolling=False)
 
     if st.session_state.stations:
         st.subheader("🏆 Top 10 günstigste")
